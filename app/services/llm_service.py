@@ -2,24 +2,26 @@ import os
 from datetime import datetime
 
 from langchain_google_genai import ChatGoogleGenerativeAI
+from langchain_openai import ChatOpenAI
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.output_parsers import StrOutputParser
 
 from app.storage.documents import questions_store, documents_store
 
 
+llm_service = None
+
+
 class LLMService:
     def __init__(self):
+        self.provider = os.getenv("LLM_PROVIDER", "google").lower()
         self.api_key = os.getenv("API_KEY")
+        self.llm_base_url = os.getenv("LLM_BASE_URL", "http://localhost:11434/v1")
         self.model_name = os.getenv("LLM_MODEL_NAME", "gemini-2.5-flash")
 
-        if self.api_key:
-            self.llm = ChatGoogleGenerativeAI(
-                model=self.model_name,
-                google_api_key=self.api_key,
-                temperature=0.3,
-            )
+        self.llm = self._initialize_llm()
 
+        if self.llm:
             self.prompt = ChatPromptTemplate.from_template(
                 """Answer the question based ONLY on the following context.
 Provide the answer in PLAIN TEXT format without any markdown formatting (no asterisks, no bullet points, no bold text).
@@ -33,11 +35,31 @@ Question:
 
 Answer:"""
             )
-
             self.chain = self.prompt | self.llm | StrOutputParser()
         else:
-            self.llm = None
             self.chain = None
+
+    def _initialize_llm(self):
+        if self.provider == "google":
+            if not self.api_key:
+                return None
+            return ChatGoogleGenerativeAI(
+                model=self.model_name,
+                google_api_key=self.api_key,
+                temperature=0.3,
+            )
+        elif self.provider == "qwen":
+            api_key = self.api_key if self.api_key else "dummy-key"
+
+            return ChatOpenAI(
+                model=self.model_name,
+                openai_api_key=api_key,
+                openai_api_base=self.llm_base_url,
+                temperature=0.3,
+            )
+        else:
+            print(f"Unknown provider LLM: {self.provider}")
+            return None
 
     async def process_question(self, question_id: str):
         try:
